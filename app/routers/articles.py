@@ -1,83 +1,157 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import datetime
+import streamlit as st
+import requests
 
-from app import models, schemas
-from app.database import SessionLocal
+API_BASE_URL = "https://myblog-production-ae88.up.railway.app/"
 
-router = APIRouter(prefix="/articles", tags=["Articles"])
+def main():
+    st.set_page_config(page_title="Blog Manager", layout="centered")
+    st.title("Article Manager (Blog API)")
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    # ===========================
+    # SECTION: LIST ARTICLES
+    # ===========================
+    st.header("List of Articles")
 
-@router.get("/", response_model=List[schemas.ArticleOut])
-def get_articles(
-    db: Session = Depends(get_db),
-    published: Optional[bool] = None
-):
-    """Get all articles, with an optional published filter."""
-    query = db.query(models.Article)
-    if published is not None:
-        query = query.filter(models.Article.published == published)
-    return query.order_by(models.Article.created_at.desc()).all()
+    if st.button("Load Articles"):
+        url_list = f"{API_BASE_URL}/articles"
+        st.write(">>> [DEBUG] GET:", url_list)  # Log de depuração
+        response = requests.get(url_list)
 
-@router.get("/{article_id}", response_model=schemas.ArticleOut)
-def get_article(article_id: int, db: Session = Depends(get_db)):
-    article = db.query(models.Article).filter(models.Article.id == article_id).first()
-    if not article:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Article not found."
-        )
-    return article
+        st.write(">>> [DEBUG] Status Code (List):", response.status_code)
+        try:
+            st.write(">>> [DEBUG] Response JSON (List):", response.json())
+        except:
+            st.write(">>> [DEBUG] Response Text (List):", response.text)
 
-@router.post("/", response_model=schemas.ArticleOut, status_code=status.HTTP_201_CREATED)
-def create_article(article: schemas.ArticleCreate, db: Session = Depends(get_db)):
-    new_article = models.Article(
-        title=article.title,
-        content=article.content,
-        published=article.published
-    )
-    if article.published:
-        new_article.published_at = datetime.utcnow()
+        if response.status_code == 200:
+            articles = response.json()
+            if articles:
+                for article in articles:
+                    st.subheader(f"ID: {article['id']} | {article['title']}")
+                    st.write(article["content"])
+                    st.write(f"Published? {article['published']}")
+                    st.write("---")
+            else:
+                st.info("No articles found.")
+        else:
+            st.error("Failed to retrieve articles.")
 
-    db.add(new_article)
-    db.commit()
-    db.refresh(new_article)
-    return new_article
+    # ===========================
+    # SECTION: CREATE ARTICLE
+    # ===========================
+    st.header("Create New Article")
 
-@router.put("/{article_id}", response_model=schemas.ArticleOut)
-def update_article(article_id: int, updated_data: schemas.ArticleUpdate, db: Session = Depends(get_db)):
-    existing_article = db.query(models.Article).filter(models.Article.id == article_id).first()
-    if not existing_article:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Article not found."
-        )
+    with st.form("create_article_form"):
+        new_title = st.text_input("Article Title", value="")
+        new_content = st.text_area("Content")
+        new_published = st.checkbox("Published?", value=False)
 
-    existing_article.title = updated_data.title
-    existing_article.content = updated_data.content
-    existing_article.published = updated_data.published
-    existing_article.published_at = datetime.utcnow() if updated_data.published else None
+        submitted = st.form_submit_button("Create")
+        if submitted:
+            payload = {
+                "title": new_title,
+                "content": new_content,
+                "published": new_published
+            }
+            # URL do POST /articles
+            url_create = f"{API_BASE_URL}/articles"
 
-    db.commit()
-    db.refresh(existing_article)
-    return existing_article
+            # Logs de depuração para verificar a rota e o payload
+            st.write(">>> [DEBUG] POST:", url_create)
+            st.write(">>> [DEBUG] Payload:", payload)
 
-@router.delete("/{article_id}")
-def delete_article(article_id: int, db: Session = Depends(get_db)):
-    article = db.query(models.Article).filter(models.Article.id == article_id).first()
-    if not article:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Article not found."
-        )
+            response = requests.post(url_create, json=payload)
 
-    db.delete(article)
-    db.commit()
-    return {"detail": "Artigo deleted successfully."}
+            st.write(">>> [DEBUG] Status Code (Create):", response.status_code)
+            try:
+                st.write(">>> [DEBUG] Response JSON (Create):", response.json())
+            except:
+                st.write(">>> [DEBUG] Response Text (Create):", response.text)
+
+            if response.status_code == 201:
+                st.success("Article created successfully!")
+            else:
+                st.error(f"Failed to create article: {response.text}")
+
+    # ===========================
+    # SECTION: EDIT ARTICLE
+    # ===========================
+    st.header("Edit Existing Article")
+
+    article_id_edit = st.number_input("Article ID to Edit", min_value=1, step=1)
+    if st.button("Load Article Data"):
+        url_edit_get = f"{API_BASE_URL}/articles/{article_id_edit}"
+        st.write(">>> [DEBUG] GET (Edit):", url_edit_get)
+        response = requests.get(url_edit_get)
+
+        st.write(">>> [DEBUG] Status Code (Edit GET):", response.status_code)
+        try:
+            st.write(">>> [DEBUG] Response JSON (Edit GET):", response.json())
+        except:
+            st.write(">>> [DEBUG] Response Text (Edit GET):", response.text)
+
+        if response.status_code == 200:
+            article_data = response.json()
+            st.session_state["edit_article"] = article_data
+        else:
+            st.error("Article not found or request error.")
+
+    if "edit_article" in st.session_state:
+        article_data = st.session_state["edit_article"]
+        with st.form("update_article_form"):
+            updated_title = st.text_input("Title", value=article_data["title"])
+            updated_content = st.text_area("Content", value=article_data["content"])
+            updated_published = st.checkbox("Published?", value=article_data["published"])
+
+            submitted_update = st.form_submit_button("Update")
+            if submitted_update:
+                payload_update = {
+                    "title": updated_title,
+                    "content": updated_content,
+                    "published": updated_published
+                }
+                url_update = f"{API_BASE_URL}/articles/{article_data['id']}"
+
+                st.write(">>> [DEBUG] PUT:", url_update)
+                st.write(">>> [DEBUG] Payload (Update):", payload_update)
+
+                resp_update = requests.put(url_update, json=payload_update)
+
+                st.write(">>> [DEBUG] Status Code (Update):", resp_update.status_code)
+                try:
+                    st.write(">>> [DEBUG] Response JSON (Update):", resp_update.json())
+                except:
+                    st.write(">>> [DEBUG] Response Text (Update):", resp_update.text)
+
+                if resp_update.status_code == 200:
+                    st.success("Article updated successfully!")
+                    st.session_state["edit_article"] = resp_update.json()
+                else:
+                    st.error(f"Failed to update article: {resp_update.text}")
+
+    # ===========================
+    # SECTION: DELETE ARTICLE
+    # ===========================
+    st.header("Delete Article")
+
+    article_id_delete = st.number_input("Article ID to Delete", min_value=1, step=1)
+    if st.button("Delete"):
+        url_delete = f"{API_BASE_URL}/articles/{article_id_delete}"
+        st.write(">>> [DEBUG] DELETE:", url_delete)
+
+        resp_delete = requests.delete(url_delete)
+
+        st.write(">>> [DEBUG] Status Code (Delete):", resp_delete.status_code)
+        try:
+            st.write(">>> [DEBUG] Response JSON (Delete):", resp_delete.json())
+        except:
+            st.write(">>> [DEBUG] Response Text (Delete):", resp_delete.text)
+
+        if resp_delete.status_code == 200:
+            st.success("Article deleted successfully!")
+        else:
+            st.error(f"Failed to delete article: {resp_delete.text}")
+
+
+if __name__ == "__main__":
+    main()
