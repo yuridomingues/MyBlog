@@ -41,7 +41,7 @@ def create_article(article: schemas.ArticleCreate, db: Session = Depends(get_db)
     new_article = models.Article(
         title=article.title,
         content=article.content,
-        published=article.published,
+        published=article.published
     )
     if article.published:
         new_article.published_at = datetime.utcnow()
