@@ -1,5 +1,2 @@
-run api:
-	uvicorn app.main:app --reload
-
-run streamlit:
-	streamlit run streamlit_app.py
+run:
+	uvicorn app.main:app --reload & streamlit run streamlit_app.py
