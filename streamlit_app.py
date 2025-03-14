@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # Base URL of your API
-API_BASE_URL = "http://127.0.0.1:8000/articles"
+API_BASE_URL = "https://myblog-production-ae88.up.railway.app"
 
 st.set_page_config(page_title="Blog Manager", layout="centered")
 st.title("Article Manager (Blog API)")
